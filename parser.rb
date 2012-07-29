@@ -34,35 +34,14 @@ require "parslet"
 #   end
 # end
 
-# Single character rules
-# rule(:lparen)     { str('(') >> space? }
-# rule(:rparen)     { str(')') >> space? }
-# rule(:comma)      { str(',') >> space? }
-# 
-# rule(:space)      { match('\s').repeat(1) }
-# rule(:space?)     { space.maybe }
-# 
-# # Things
-# rule(:integer)    { match('[0-9]').repeat(1).as(:int) >> space? }
-# rule(:identifier) { match['a-z'].repeat(1) }
-# rule(:operator)   { match('[+]') >> space? }
-#   
-# # Grammar parts
-# rule(:sum)        { 
-#   integer.as(:left) >> operator.as(:op) >> expression.as(:right) }
-# rule(:arglist)    { expression >> (comma >> expression).repeat }
-# rule(:funcall)    { 
-#   identifier.as(:funcall) >> lparen >> arglist.as(:arglist) >> rparen }
-#   
-# rule(:expression) { funcall | sum | integer }
-# root :expression
-
 class DinoParser < Parslet::Parser
   # White-space
-  rule(:terminate) { (non_terminating_space? >> end_of_line >> non_terminating_space?).repeat(1) }
-  rule(:end_of_line) { match("\n") }
-  rule(:non_terminating_space) { match[" \t"].repeat(1) }
-  rule(:non_terminating_space?) { non_terminating_space.maybe }
+  rule(:terminate) { (nts? >> eol >> nts?).repeat(1) }
+  rule(:eol) { match("\n") }
+  rule(:nts) { match[" \t"].repeat(1) }
+  rule(:nts?) { nts.maybe }
+  rule(:separator) { (nts | eol).repeat(1) }
+  rule(:separator?) { separator.maybe }
   
   # Simple
   rule(:characters) { match["A-Za-z"].repeat(1) }
@@ -74,41 +53,104 @@ class DinoParser < Parslet::Parser
   rule(:digits?) { digits.maybe }
   rule(:significand) { (digits? >> str(".") >> digits).as(:significand) }
   rule(:exponent?) { (match["eE"] >> digits.as(:exponent)).maybe }
-  rule(:integer) { sign? >> digits.as(:value) >> non_terminating_space? }
-  rule(:float) { (sign? >> significand >> exponent?).as(:value) >> non_terminating_space? }
-  rule(:number) { (float.as(:float) | integer.as(:integer)) >> non_terminating_space? }
+  rule(:integer) { sign? >> digits.as(:value) >> nts? }
+  rule(:float) { (sign? >> significand >> exponent?).as(:value) >> nts? }
+  rule(:number) { (float.as(:float) | integer.as(:integer)) >> nts? }
   
   # Strings (still needs interpolation)
-  rule(:string) { (str(?") >> match['^"'].repeat.as(:body) >> str(?")).as(:string) >> non_terminating_space? }
+  rule(:string) { (str(?") >> (str(?").absnt? >> any).repeat.as(:body) >> str(?")).as(:string) >> nts? }
   
   # Grammar
-  rule(:atom) { number | string }
-  rule(:function_name) { (characters >> (digits | characters).repeat >> str(??).maybe).as(:name) }
-  rule(:function_call) { (function_name).as(:function_call) >> non_terminating_space? }
-  rule(:list) { (str(?() >> str(?))).as(:list) >> non_terminating_space? }
-  rule(:expression) { non_terminating_space? >> (function_call | atom).as(:expression) }
-  rule(:expressions) { ((expression >> terminate).repeat >> expression.maybe).as(:expressions) }
+  rule(:function_name) { (characters >> (digits | characters).repeat >> str(??).maybe).as(:function_name) }
+  rule(:atom) { function_name | number | string }
+  rule(:list) { str(?() >> (separator? >> expression >> separator?).repeat.as(:list) >> str(?)) >> nts? }
+  rule(:expression) { (list | function_name | atom).as(:expression) }
+  rule(:expressions) { (((nts? >> expression >> terminate) | terminate).repeat >> (nts? >> expression).maybe).as(:expressions) }
 
   root(:expressions)
+  
+  def self.parse(string)
+    begin
+      puts string
+      
+      new.parse(string).tap do |parsed_string|
+        pp parsed_string
+        puts
+      end
+    rescue Parslet::ParseFailed => failure
+      puts failure.cause.ascii_tree
+      raise failure
+    end
+  end
 end
 
-pp DinoParser.new.parse("")
-pp DinoParser.new.parse("\"\"")
-pp DinoParser.new.parse("\"\"\n\"\"")
-pp DinoParser.new.parse('"12345"')
-pp DinoParser.new.parse("10\n+10\n-10")
-pp DinoParser.new.parse("10.0\n+.10\n-1.0e10")
-pp DinoParser.new.parse("exp\nexp\nexp\n\nexp\n\n\n")
-pp DinoParser.new.parse("exp\nexp10?\nexp\n\nexp")
+DinoParser.parse("")
 
-string = <<-STR
+DinoParser.parse("\"\"")
+
+DinoParser.parse("\"12345\"")
+
+DinoParser.parse("(12345)")
+
+DinoParser.parse("hello")
+
+DinoParser.parse("(hello)")
+
+DinoParser.parse("( hello )")
+
+DinoParser.parse(" ( hello ) ")
+
+DinoParser.parse("\n ( \n hello \n ) \n ")
+
+DinoParser.parse("\n ( \n hello (world) \n ) \n ")
+
+DinoParser.parse("(print \"hi\")")
+
+DinoParser.parse(<<-STR
+""
+""
+STR
+)
+
+DinoParser.parse(<<-STR
+12345
++12345
+-12345
+12.34e5
++12.34e5
+-12.34e5
+12.345
++12.345
+-12.345
+STR
+)
+
+DinoParser.parse(<<-STR
+expression
+(expression)
+(expression10)
+(expression10exp)
+(expression10exp?)
+STR
+)
+
+DinoParser.parse(<<-STR
+(class Foo (function bar name (puts name)))
+STR
+)
+
+DinoParser.parse(<<-STR
+(bar (new Foo) "Evan")
+STR
+)
+
+DinoParser.parse(<<-STR
 (class Foo
- (function bar [name] (
+ (function bar name (
    puts name
  ))
 )
 
 (bar (new Foo) "Evan")
 STR
-
-pp DinoParser.new.parse(string)
+)
