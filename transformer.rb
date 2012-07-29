@@ -8,7 +8,12 @@ class Array
 end
 
 DINO_CORE = {
-  "+" => ->(*list) { list.inject(&:+) }
+  "+" => ->(*list) { list.inject(&:+) },
+  "-" => ->(*list) { list.inject(&:-) },
+  "*" => ->(*list) { list.inject(&:*) },
+  "/" => ->(*list) { list.inject(&:/) },
+  "%" => ->(*list) { list.inject(&:%) },
+  "^" => ->(*list) { list.inject(&:**) }
 }
 
 class DinoBase < Struct.new(:expressions)
@@ -58,7 +63,7 @@ if ARGV[0] == "transformer_test"
   puts "| TRANSFORMER TESTS                                      |"
   puts "+--------------------------------------------------------+"
 
-  pp DinoTransformer.apply("(+ 1 2 3 (+ 4 5 6))").eval
+  pp DinoTransformer.apply("(^ (+ 1 2 3 (- 4 5)) 2)").eval
 
   puts "\n...complete."
 end
