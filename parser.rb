@@ -20,11 +20,12 @@ class DinoParser < Parslet::Parser
   rule(:r_list) { str(?]) }
   rule(:l_dict) { str(?{) }
   rule(:r_dict) { str(?}) }
+  rule(:math_op) { str("+") | str("-") | str("*") | str("/") | str("%") | str("^") }
   rule(:characters) { match["A-Za-z"].repeat(1) }
   rule(:characters?) { characters.maybe }
   rule(:digits) { match["0-9"].repeat(1) }
   rule(:digits?) { digits.maybe }
-  rule(:sign?) { match["+-"].maybe.as(:sign) }
+  rule(:sign?) { match["+-"].maybe }
   
   # Special tokens
   rule(:true_token) { (str("true") | str("TRUE")).as(:true_token) }
@@ -32,10 +33,10 @@ class DinoParser < Parslet::Parser
   rule(:nil_token) { (str("nil") | str("NIL")).as(:nil_token) }
   
   # Numbers
-  rule(:significand) { (digits? >> str(".") >> digits).as(:significand) }
+  rule(:significand) { (sign? >> digits? >> str(".") >> digits).as(:significand) }
   rule(:exponent?) { (match["eE"] >> digits.as(:exponent)).maybe }
-  rule(:float) { (sign? >> significand >> exponent?).as(:value) }
-  rule(:integer) { sign? >> digits.as(:value) }
+  rule(:float) { (significand >> exponent?).as(:value) }
+  rule(:integer) { (sign? >> digits).as(:value) }
   rule(:number) { (float.as(:float) | integer.as(:integer)).as(:number) }
   
   # Strings (still needs interpolation)
@@ -46,22 +47,25 @@ class DinoParser < Parslet::Parser
   rule(:string) { (s_string | d_string) }
   
   # Grammar
-  rule(:f_name) { (characters.repeat(1) >> (digits | characters).repeat >> str(??).maybe).as(:f_name) }
+  rule(:f_name) { ((characters.repeat(1) >> (digits | characters).repeat >> str(??).maybe) | math_op).as(:f_name) }
   rule(:atom) { (number | string | true_token | false_token | nil_token | f_name) }
   rule(:dict) { l_dict >> (separator? >> expression.as(:key) >> separator? >> expression.as(:value) >> separator?).repeat.as(:dict) >> r_dict }
   rule(:list) { l_list >> (separator? >> expression >> separator?).repeat.as(:list) >> r_list }
-  rule(:call) { l_call >> (separator? >> expression >> separator?).repeat.as(:call) >> r_call }
-  rule(:expression) { (call | list | dict | atom).as(:expression) >> nts? }
+  rule(:call) { l_call >> (separator? >> expression >> separator?).repeat(1).as(:call) >> r_call }
+  rule(:expression) { (call | list | dict | atom) >> nts? }
   rule(:expressions) { (((nts? >> expression >> terminate) | terminate).repeat >> (nts? >> expression).maybe).as(:expressions) }
 
   root(:expressions)
   
   def self.parse(string, print_parse = true)
     begin
+      puts "Raw input:"
       puts string
+      puts
       
       new.parse(string).tap do |parsed_string|
         if print_parse
+          puts "Parse tree:"
           pp parsed_string
           puts
         end
@@ -73,7 +77,7 @@ class DinoParser < Parslet::Parser
   end
 end
 
-if ARGV[0] == "test"
+if ARGV[0] == "parser_test"
   puts "+--------------------------------------------------------+"
   puts "| PARSER TESTS                                           |"
   puts "+--------------------------------------------------------+"
@@ -84,6 +88,7 @@ if ARGV[0] == "test"
   DinoParser.parse("'\"\"'")
   DinoParser.parse("\"12345\"")
   DinoParser.parse("(12345)")
+  DinoParser.parse("(+ 12345 67890)")
   DinoParser.parse("hello")
   DinoParser.parse("(hello)")
   DinoParser.parse("( hello )")
