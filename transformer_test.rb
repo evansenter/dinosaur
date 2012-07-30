@@ -23,4 +23,24 @@ puts "Solution: "
 pp solution
 puts "\n" * 3
 
+solution = DinoTransformer.apply("(p [true false nil])").eval
+puts "Solution: "
+pp solution
+puts "\n" * 3
+
+solution = DinoTransformer.apply("(p true false nil)").eval
+puts "Solution: "
+pp solution
+puts "\n" * 3
+
+solution = DinoTransformer.apply("(p 'hello world' 'goodbye')").eval
+puts "Solution: "
+pp solution
+puts "\n" * 3
+
+solution = DinoTransformer.apply("(p (get. { 'a' 1, 'b' 2 } 'b'))").eval
+puts "Solution: "
+pp solution
+puts "\n" * 3
+
 puts "...complete."

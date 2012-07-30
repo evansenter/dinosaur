@@ -8,7 +8,7 @@ class DinoBase < DinoCore
   end
   
   add_function("p") do |*arguments|
-    p(*arguments.map(&:eval))
+    pp(*arguments.map(&:eval))
     DinoNil
   end
   
