@@ -8,15 +8,11 @@ class Array
 end
 
 class DinoCore < Object
-  METHODS = {}
-  
   def self.method_missing(name, *args, &block)
     if match = name.to_s.match(/^init_with_(.*)?$/)
       prefix    = ->(string, list) { ([string] * list.length).zip(list).map(&:join) }
       arguments = match[1].split("_and_")
       self.class_eval <<-RUBY
-        METHODS = {}
-      
         attr_reader #{prefix[":", arguments].join(", ")}
       
         def initialize #{arguments.join(", ")}
@@ -27,10 +23,34 @@ class DinoCore < Object
       super
     end
   end
+  
+  def self.functions
+    const_defined?(:METHODS) ? const_get(:METHODS) : const_set(:METHODS, {})
+  end
+  
+  def self.add_function(name, &block)
+    functions[name] = block
+  end
 end
 
+DinoNil = Class.new(DinoCore) do
+  def eval; nil; end
+  def inspect; "DinoNil"; end
+end.new
+
 class DinoBase < DinoCore
-  init_with_expressions
+  class << self; attr_accessor :context; end
+  attr_reader :expressions
+  
+  def initialize(expressions)
+    @expressions       = expressions
+    self.class.context = self
+  end
+  
+  add_function("p") do |*arguments|
+    p(*arguments.map(&:eval))
+    DinoNil
+  end
   
   def eval
     until expressions.empty?
@@ -46,14 +66,12 @@ class DinoCall < DinoCore
   
   def eval
     puts "Eval: #{function_name} with #{arguments.map(&:class).join(', ')}"
+    arguments.map! { |i| i.is_a?(DinoCall) ? i.eval : i }
     
     if function_name.end_with?(?.)
-      arguments.map! { |i| i.is_a?(DinoCall) ? i.eval : i }
-      
-      function = resolve(arguments.first.class, function_name[0..-2])
-      function[arguments.first, *arguments[1..-1]]
+      resolve(arguments.first.class, function_name[0..-2])[arguments.first, *arguments[1..-1]]
     else
-      raise "Function '#{function_name}' needs to end in '.' for now"
+      resolve(DinoBase.context.class, function_name)[*arguments]
     end
   end
   
@@ -62,7 +80,7 @@ class DinoCall < DinoCore
     original_context = context
     
     while context != Object
-      if function = context.const_get(:METHODS)[function_name]
+      if function = context.functions[function_name]
         return function
       else
         context = context.superclass
@@ -74,8 +92,6 @@ class DinoCall < DinoCore
 end
 
 class DinoNumber < DinoCore
-  METHODS = {}
-  
   {
     "+" => "+",
     "-" => "-",
@@ -84,7 +100,7 @@ class DinoNumber < DinoCore
     "%" => "%",
     "^" => "**"
   }.each do |dino_method, ruby_method|
-    METHODS[dino_method] = ->(this, *list) do
+    add_function(dino_method) do |this, *list|
       list.inject(this) do |memo, value|
         case solution = memo.eval.send(ruby_method, value.eval)
         when Float   then DinoFloat.new(solution)
@@ -129,7 +145,6 @@ class DinoTransformer < Parslet::Transform
       if print_parse
         puts "AST:"
         pp parsed_tree
-        puts
       end
     end
   end
