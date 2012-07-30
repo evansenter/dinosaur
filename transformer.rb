@@ -7,63 +7,126 @@ class Array
   end
 end
 
-DINO_CORE = {
-  "+" => ->(*list) { list.inject(&:+) },
-  "-" => ->(*list) { list.inject(&:-) },
-  "*" => ->(*list) { list.inject(&:*) },
-  "/" => ->(*list) { list.inject(&:/) },
-  "%" => ->(*list) { list.inject(&:%) },
-  "^" => ->(*list) { list.inject(&:**) }
-}
-
-class DinoBase < Struct.new(:expressions)
-  def eval
-    expressions.map(&:eval).last
-  end
-end
-
-class DinoCall < Struct.new(:function_name, :arguments)
-  def eval
-    DINO_CORE[function_name][*(arguments.map(&:eval))]
-  end
-end
-
-class DinoInt < Struct.new(:value)
-  def eval
-    value.to_i
-  end
-end
-
-class DinoTransformer < Parslet::Transform
-  rule(number: { integer: subtree(:data) }) { DinoInt.new(data[:value]) }
-  rule(f_name: simple(:f_name)) { f_name.to_s }
-  rule(call: subtree(:data)) { DinoCall.new(data.first, data[1..-1]) }
-  rule(expressions: subtree(:data)) { DinoBase.new(Array.wrap(data)) }
-    
-  def self.apply(string, print_parse = true)
-    tree = DinoParser.parse(string)
-    
-    begin
-      new.apply(tree).tap do |parsed_tree|
-        if print_parse
-          puts "AST:"
-          pp parsed_tree
-          puts
+class DinoCore < Object
+  METHODS = {}
+  
+  def self.method_missing(name, *args, &block)
+    if match = name.to_s.match(/^init_with_(.*)?$/)
+      prefix    = ->(string, list) { ([string] * list.length).zip(list).map(&:join) }
+      arguments = match[1].split("_and_")
+      self.class_eval <<-RUBY
+        METHODS = {}
+      
+        attr_reader #{prefix[":", arguments].join(", ")}
+      
+        def initialize #{arguments.join(", ")}
+          #{prefix["@", arguments].join(", ")} = #{arguments.join(", ")}
         end
-      end
-    rescue Parslet::ParseFailed => failure
-      puts failure.cause.ascii_tree
-      raise failure
+      RUBY
+    else
+      super
     end
   end
 end
 
-if ARGV[0] == "transformer_test"
-  puts "+--------------------------------------------------------+"
-  puts "| TRANSFORMER TESTS                                      |"
-  puts "+--------------------------------------------------------+"
+class DinoBase < DinoCore
+  init_with_expressions
+  
+  def eval
+    until expressions.empty?
+      result = expressions.shift.eval
+    end
+    
+    result
+  end
+end
 
-  pp DinoTransformer.apply("(^ (+ 1 2 3 (- 4 5)) 2)").eval
+class DinoCall < DinoCore
+  init_with_function_name_and_arguments
+  
+  def eval
+    if function_name.end_with?(?.)
+      function = resolve(arguments.first.class, function_name[0..-2])
+      function[arguments.first, *arguments[1..-1]]
+    else
+      
+    end
+  end
+  
+  def resolve(context, function_name)
+    # Simple method resolution.
+    original_context = context
+    
+    while context != Object
+      if function = context.const_get(:METHODS)[function_name]
+        return function
+      else
+        context = context.superclass
+      end
+    end
+    
+    raise "Method not found: '#{function_name}' starting at context #{original_context.name}"
+  end
+end
 
-  puts "\n...complete."
+class DinoNumber < DinoCore
+  METHODS = {}
+  
+  {
+    "+" => "+",
+    "-" => "-",
+    "*" => "*",
+    "/" => "/",
+    "%" => "%",
+    "^" => "**"
+  }.each do |dino_method, ruby_method|
+    METHODS[dino_method] = ->(this, *list) do
+      list.inject(this) do |memo, value|
+        case solution = memo.eval.send(ruby_method, value.eval)
+        when Float   then DinoFloat.new(solution)
+        when Integer then DinoInt.new(solution)
+        else raise solution
+        end
+      end
+    end
+  end
+end
+
+class DinoFloat < DinoNumber
+  init_with_value
+  
+  def eval
+    @eval ||= value.to_f
+  end
+end
+
+class DinoInt < DinoNumber
+  init_with_value
+  
+  def eval
+    @eval ||= value.to_i
+  end
+end
+
+class DinoTransformer < Parslet::Transform
+  class << self; attr_accessor :debug; end
+  
+  rule(number: { float: subtree(:data) }) { DinoFloat.new(data[:value][:significand].to_f ** (data[:value][:exponent].to_f || 1)) }
+  rule(number: { integer: subtree(:data) }) { DinoInt.new(data[:value]) }
+  
+  rule(f_name: simple(:f_name)) { f_name.to_s }
+  
+  rule(call: subtree(:data)) { DinoCall.new(data.first, data[1..-1]) }
+  
+  rule(expressions: subtree(:data)) { DinoBase.new(Array.wrap(data)) }
+    
+  def self.apply(string, print_parse = true)
+    new.apply(DinoParser.parse(string)).tap do |parsed_tree|
+      if print_parse
+        puts "AST:"
+        pp parsed_tree
+        puts
+      end
+    end
+  end
 end
