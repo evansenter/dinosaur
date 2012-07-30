@@ -1,5 +1,6 @@
 require "pp"
 require "parslet"
+require "./utils.rb"
 
 class DinoParser < Parslet::Parser
   class << self; attr_accessor :debug; end
