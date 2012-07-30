@@ -2,6 +2,8 @@ require "pp"
 require "parslet"
 
 class DinoParser < Parslet::Parser
+  class << self; attr_accessor :debug; end
+  
   # White-space handlers
   rule(:nts) { match[" \t,"].repeat(1) }
   rule(:nts?) { nts.maybe }
@@ -12,6 +14,7 @@ class DinoParser < Parslet::Parser
   rule(:terminate) { (nts? >> eol >> nts?).repeat(1) }
   
   # Non-whitespace characters
+  rule(:dot) { str(?.) }
   rule(:d_quote) { str(?") }
   rule(:s_quote) { str(?') }
   rule(:l_call) { str(?() }
@@ -33,9 +36,10 @@ class DinoParser < Parslet::Parser
   rule(:nil_token) { (str("nil") | str("NIL")).as(:nil_token) }
   
   # Numbers
-  rule(:significand) { (sign? >> digits? >> str(".") >> digits).as(:significand) }
-  rule(:exponent?) { (match["eE"] >> digits.as(:exponent)).maybe }
-  rule(:float) { (significand >> exponent?).as(:value) }
+  rule(:decimal_number?) { (sign? >> digits >> dot.maybe >> digits?) }
+  rule(:significand) { (sign? >> digits? >> dot >> digits) }
+  rule(:exponent?) { (match["eE"] >> decimal_number?.as(:exponent)).maybe }
+  rule(:float) { (significand.as(:significand) >> exponent?).as(:value) }
   rule(:integer) { (sign? >> digits).as(:value) }
   rule(:number) { (float.as(:float) | integer.as(:integer)).as(:number) }
   
@@ -47,7 +51,7 @@ class DinoParser < Parslet::Parser
   rule(:string) { (s_string | d_string) }
   
   # Grammar
-  rule(:f_name) { ((characters.repeat(1) >> (digits | characters).repeat >> str(??).maybe) | math_op).as(:f_name) }
+  rule(:f_name) { (((characters.repeat(1) >> (digits | characters).repeat >> str(??).maybe) | math_op) >> dot.maybe).as(:f_name) }
   rule(:atom) { (number | string | true_token | false_token | nil_token | f_name) }
   rule(:dict) { l_dict >> (separator? >> expression.as(:key) >> separator? >> expression.as(:value) >> separator?).repeat.as(:dict) >> r_dict }
   rule(:list) { l_list >> (separator? >> expression >> separator?).repeat.as(:list) >> r_list }
@@ -57,110 +61,14 @@ class DinoParser < Parslet::Parser
 
   root(:expressions)
   
-  def self.parse(string, print_parse = true)
-    begin
-      puts "Raw input:"
-      puts string
-      puts
-      
-      new.parse(string).tap do |parsed_string|
-        if print_parse
-          puts "Parse tree:"
-          pp parsed_string
-          puts
-        end
+  def self.parse(string, print_parse = false)
+    new.parse(string).tap do |parsed_string|
+      if debug
+        puts "Raw input:\n#{string}\n"
+        puts "Parse tree:"
+        pp parsed_string
+        puts
       end
-    rescue Parslet::ParseFailed => failure
-      puts failure.cause.ascii_tree
-      raise failure
     end
   end
-end
-
-if ARGV[0] == "parser_test"
-  puts "+--------------------------------------------------------+"
-  puts "| PARSER TESTS                                           |"
-  puts "+--------------------------------------------------------+"
-
-  DinoParser.parse("")
-  DinoParser.parse("\"\"")
-  DinoParser.parse('""')
-  DinoParser.parse("'\"\"'")
-  DinoParser.parse("\"12345\"")
-  DinoParser.parse("(12345)")
-  DinoParser.parse("(+ 12345 67890)")
-  DinoParser.parse("hello")
-  DinoParser.parse("(hello)")
-  DinoParser.parse("( hello )")
-  DinoParser.parse(" ( hello ) ")
-  DinoParser.parse("\n ( \n hello \n ) \n ")
-  DinoParser.parse("\n ( \n hello (world) \n ) \n ")
-  DinoParser.parse("(print \"hi\")")
-  DinoParser.parse("(+123.45 'testing parser precedence' TRUE false NIL l33t?)")
-  DinoParser.parse(<<-STR
-  ""
-  ""
-  STR
-  )
-  DinoParser.parse(<<-STR
-  12345
-  +12345
-  -12345
-  .34e5
-  +.34e5
-  -.34e5
-  12.34e5
-  +12.34e5
-  -12.34e5
-  12.345
-  +12.345
-  -12.345
-  STR
-  )
-  DinoParser.parse(<<-STR
-  expression
-  (expression)
-  (expression10)
-  (expression10exp)
-  (expression10exp?)
-  STR
-  )
-  DinoParser.parse(<<-STR
-  (class Foo (function bar name (puts name)))
-  STR
-  )
-  DinoParser.parse(<<-STR
-  (bar (new Foo) "Evan")
-  STR
-  )
-  DinoParser.parse(<<-STR
-  (class Foo
-   (function bar name (
-     puts name
-   ))
-  )
-
-  (bar (new Foo) "Evan")
-  STR
-  )
-  DinoParser.parse(<<-STR
-  [( puts "Evan" ) [ 1, 2, 3 ] { "hello" 'world' }]
-  STR
-  )
-  DinoParser.parse(<<-STR
-  { 
-    "hello" 
-    'world' 
-  }
-  STR
-  )
-  DinoParser.parse(<<-STR
-  { 
-    "hello" 'world',
-    "hello" 'space'
-  }
-  STR
-  )
-
-  puts "\n...complete."
 end
