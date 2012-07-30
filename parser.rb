@@ -36,11 +36,12 @@ class DinoParser < Parslet::Parser
   rule(:nil_token) { (str("nil") | str("NIL")).as(:nil_token) }
   
   # Numbers
-  rule(:decimal_number?) { (sign? >> digits >> (dot >> digits).maybe) }
-  rule(:significand) { (sign? >> digits? >> dot >> digits) }
-  rule(:exponent?) { (match["eE"] >> decimal_number?.as(:exponent)).maybe }
-  rule(:float) { (significand.as(:significand) >> exponent?).as(:value) }
-  rule(:integer) { (sign? >> digits).as(:value) }
+  rule(:signed_int) { sign? >> digits }
+  rule(:significand) { sign? >> digits? >> dot >> digits }
+  rule(:exponent) { match["eE"] >> signed_int.as(:exponent) }
+  rule(:exponent?) { exponent.maybe }
+  rule(:float) { ((significand.as(:significand) >> exponent?) | (signed_int.as(:significand) >> exponent)).as(:value) }
+  rule(:integer) { signed_int.as(:value) }
   rule(:number) { (float.as(:float) | integer.as(:integer)).as(:number) }
   
   # Strings (still needs interpolation)
