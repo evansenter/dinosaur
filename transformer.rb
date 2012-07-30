@@ -45,11 +45,15 @@ class DinoCall < DinoCore
   init_with_function_name_and_arguments
   
   def eval
+    puts "Eval: #{function_name} with #{arguments.map(&:class).join(', ')}"
+    
     if function_name.end_with?(?.)
+      arguments.map! { |i| i.is_a?(DinoCall) ? i.eval : i }
+      
       function = resolve(arguments.first.class, function_name[0..-2])
       function[arguments.first, *arguments[1..-1]]
     else
-      
+      raise "Function '#{function_name}' needs to end in '.' for now"
     end
   end
   
